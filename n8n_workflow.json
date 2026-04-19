@@ -1,0 +1,96 @@
+{
+  "name": "InsightPDF Pro — Groq Pipeline",
+  "nodes": [
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ask-question",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-qa",
+      "name": "Webhook: Receive Question",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst question = body.question.toLowerCase();\nconst chunks = body.chunks;\n\nconst keywords = question.split(' ');\n\nconst scored = chunks.map(c => {\n  let score = 0;\n  for (const k of keywords) {\n    if (c.text.toLowerCase().includes(k)) score++;\n  }\n  return { chunk: c, score };\n});\n\nscored.sort((a,b) => b.score - a.score);\nconst topChunks = scored.slice(0,4).map(s => s.chunk);\n\nconst context = topChunks.map(c => `[${c.source} Page ${c.page}]\\n${c.text}`).join('\\n\\n');\n\nconst prompt = `Answer ONLY from the context below.\\n\\n${context}\\n\\nQuestion: ${question}`;\n\nreturn [{ json: { prompt, topChunks } }];"
+      },
+      "id": "similarity",
+      "name": "Code: Similarity Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_GROQ_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"model\": \"llama3-8b-8192\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify($json.prompt) }}\n    }\n  ],\n  \"temperature\": 0.2\n}"
+      },
+      "id": "groq-call",
+      "name": "HTTP: Call Groq",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [600, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const groqResp = $input.first().json;\nconst prev = $('Code: Similarity Search').first().json;\n\nconst answer = groqResp?.choices?.[0]?.message?.content || 'No answer';\n\nconst sources = (prev.topChunks || []).map(c => ({\n  source: c.source,\n  page: c.page,\n  snippet: c.text.slice(0,200)\n}));\n\nreturn [{ json: { answer, sources } }];"
+      },
+      "id": "format",
+      "name": "Code: Format Answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "response",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1000, 300]
+    }
+
+  ],
+
+  "connections": {
+    "Webhook: Receive Question": {
+      "main": [[{ "node": "Code: Similarity Search", "type": "main", "index": 0 }]]
+    },
+    "Code: Similarity Search": {
+      "main": [[{ "node": "HTTP: Call Groq", "type": "main", "index": 0 }]]
+    },
+    "HTTP: Call Groq": {
+      "main": [[{ "node": "Code: Format Answer", "type": "main", "index": 0 }]]
+    },
+    "Code: Format Answer": {
+      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
+    }
+  }
+}
