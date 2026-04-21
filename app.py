@@ -440,7 +440,7 @@ with st.sidebar:
 
                 prog = st.progress(0, text="Sending to n8n…")
                 for i, pdf in enumerate(uploaded_files):
-                    prog.progress((i+1) / len(uploaded_files)* 100, text=f"n8n processing {pdf.name}…")
+                    prog.progress((i+1) / len(uploaded_files), text=f"n8n processing {pdf.name}…")
                     try:
                         pdf_bytes = pdf.read()
                         pdf_b64   = base64.b64encode(pdf_bytes).decode("utf-8")
