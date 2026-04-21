@@ -1,7 +1,8 @@
 # Streamlit is now just the UI layer
 # All PDF processing happens inside n8n
 # So we no longer need LangChain, FAISS, PyTorch, or sentence-transformers
-
+pip>=24.0
 streamlit==1.31.1
 requests>=2.31.0
 python-dotenv>=1.0.0
+Pillow==10.0.1

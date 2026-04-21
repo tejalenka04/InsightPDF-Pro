@@ -19,14 +19,11 @@ def ensure_dict(data):
 # ══════════════════════════════════════════════════════════════════════════════
 # n8n ENDPOINT CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
-N8N_BASE          = os.getenv("N8N_BASE_URL",      "http://localhost:5678")
-PROCESS_PDF_PATH  = os.getenv("N8N_PROCESS_PDF",   "/webhook/process-pdf")
-ASK_QUESTION_PATH = os.getenv("N8N_ASK_QUESTION",  "/webhook/ask-question")
-SUMMARISE_PATH    = os.getenv("N8N_SUMMARISE",      "/webhook/summarise")
+N8N_BASE = "https://n8n-backend.onrender.com"
 
-PROCESS_PDF_URL   = N8N_BASE + PROCESS_PDF_PATH
-ASK_QUESTION_URL  = N8N_BASE + ASK_QUESTION_PATH
-SUMMARISE_URL     = N8N_BASE + SUMMARISE_PATH
+PROCESS_PDF_URL   = "https://n8n-backend.onrender.com/webhook/process-pdf"
+ASK_QUESTION_URL  = "https://n8n-backend.onrender.com/webhook/ask-question"
+SUMMARISE_URL     = "https://n8n-backend.onrender.com/webhook/summarise"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIG
@@ -64,15 +61,16 @@ st.markdown("""
   background: var(--bg) !important;
 }
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; color: var(--text); }
-#MainMenu, footer, { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
 .block-container { padding-top: 1.8rem !important; max-width: 100% !important }
 
 /* ── Sidebar ── */
 [data-theme="dark"] section[data-testid="stSidebar"] {
   background: var(--surface) !important;
-}
   border-right: 1px solid var(--border);
 }
+  
+
 section[data-testid="stSidebar"] * { color: var(--text); }
 button[kind="header"] svg {
     color: white !important;
@@ -280,10 +278,11 @@ def call_n8n_process_pdf(pdf_name: str, pdf_b64: str) -> dict:
         data = json.loads(resp.text)
 
     if isinstance(data, str):
-        data = json.loads(data)
-
+        try:
+            data = json.loads(data)
+        except:
+            return {}
     return data
-
 
 def call_n8n_ask_question(question: str, chunks: list, history: list) -> dict:
     payload = {
@@ -304,8 +303,10 @@ def call_n8n_ask_question(question: str, chunks: list, history: list) -> dict:
         data = json.loads(resp.text)
 
     if isinstance(data, str):
-        data = json.loads(data)
-
+        try:
+            data = json.loads(data)
+        except:
+            return {}
     return data
 
 
@@ -332,7 +333,7 @@ def call_n8n_summarise(chunks: list, doc_meta: list) -> dict:
     try:
         data = resp.json()
     except:
-        return {"Summary": f"Non-JSON response from n8n: {resp.text[:300]}"}
+        return {"summary": f"Non-JSON response from n8n: {resp.text[:300]}"}
     
     if isinstance(data, list) and len(data) > 0:
         data = data[0] 
@@ -379,6 +380,31 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+    # ── n8n Connection Check ──
+    def check_n8n():
+        try:
+            resp = requests.post(PROCESS_PDF_URL, json={"ping": True}, timeout=3)
+            return resp.status_code in [200, 404, 422]
+        except:
+            return False
+
+    # ── n8n Status Indicator ──
+    n8n_status = check_n8n()
+
+    if n8n_status:
+        st.markdown("""
+        <div class="pill pill-n8n" style="margin-top:6px">
+          <div class="pill-dot dot-n8n"></div>
+          n8n Connected
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="pill pill-empty" style="margin-top:6px">
+          <div class="pill-dot dot-off"></div>
+          n8n Offline
+        </div>
+        """, unsafe_allow_html=True)
 
 
     # ── Doc status ──
@@ -414,7 +440,7 @@ with st.sidebar:
 
                 prog = st.progress(0, text="Sending to n8n…")
                 for i, pdf in enumerate(uploaded_files):
-                    prog.progress(i / len(uploaded_files), text=f"n8n processing {pdf.name}…")
+                    prog.progress((i+1) / len(uploaded_files)* 100, text=f"n8n processing {pdf.name}…")
                     try:
                         pdf_bytes = pdf.read()
                         pdf_b64   = base64.b64encode(pdf_bytes).decode("utf-8")
@@ -552,7 +578,7 @@ with tab_chat:
                                     continue
                             if isinstance(s,dict):
                                 clean_sources.append(s)
-                        souces = clean_sources
+                        sources = clean_sources
                         log_event("💬 Q&A", "ok", f"Q: {question[:60]}…")
 
                     except requests.exceptions.ConnectionError:
