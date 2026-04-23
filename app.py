@@ -21,9 +21,9 @@ def ensure_dict(data):
 # ══════════════════════════════════════════════════════════════════════════════
 N8N_BASE = "https://n8n-backend.onrender.com"
 
-PROCESS_PDF_URL   = "https://n8n-backend.onrender.com/webhook/process-pdf"
-ASK_QUESTION_URL  = "https://n8n-backend.onrender.com/webhook/ask-question"
-SUMMARISE_URL     = "https://n8n-backend.onrender.com/webhook/summarise"
+PROCESS_PDF_URL   = f"{N8N_BASE}/webhook/process-pdf"
+ASK_QUESTION_URL  = f"{N8N_BASE}/webhook/ask-question"
+SUMMARISE_URL     = f"{N8N_BASE}/webhook/summarise"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIG
@@ -267,7 +267,7 @@ def call_n8n_process_pdf(pdf_name: str, pdf_b64: str) -> dict:
         "pdf_b64": pdf_b64,
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
-
+    
     resp = requests.post(PROCESS_PDF_URL, json=payload, timeout=120)
     resp.raise_for_status()
 
@@ -383,8 +383,8 @@ with st.sidebar:
     # ── n8n Connection Check ──
     def check_n8n():
         try:
-            resp = requests.post(PROCESS_PDF_URL, json={"ping": True}, timeout=3)
-            return resp.status_code in [200, 404, 422]
+            resp = requests.get(N8N_BASE, timeout=3)
+            return resp.status_code == 200        
         except:
             return False
 
