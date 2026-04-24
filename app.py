@@ -1,10 +1,19 @@
 import streamlit as st
 import base64
-import os
 import json
 import datetime
 import requests
 from dotenv import load_dotenv
+
+import time
+
+def safe_post(url, **kwargs):
+    for i in range(3):
+        try:
+            return requests.post(url, timeout=120, **kwargs)
+        except requests.exceptions.RequestException:
+            time.sleep(5)
+    raise Exception("n8n not reachable")
 
 load_dotenv()
 
@@ -19,7 +28,7 @@ def ensure_dict(data):
 # ══════════════════════════════════════════════════════════════════════════════
 # n8n ENDPOINT CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
-N8N_BASE = "https://n8n-backend.onrender.com"
+N8N_BASE = "https://n8n-backend-y9v2.onrender.com"
 
 PROCESS_PDF_URL   = f"{N8N_BASE}/webhook/process-pdf"
 ASK_QUESTION_URL  = f"{N8N_BASE}/webhook/ask-question"
@@ -260,30 +269,68 @@ for k, v in {
 # n8n API CALLS  —  these are the REAL integration points
 # ══════════════════════════════════════════════════════════════════════════════
 
-def call_n8n_process_pdf(pdf_name: str, pdf_b64: str) -> dict:
+def call_n8n_process_pdf(pdf_name: str, pdf_bytes: bytes) -> dict:
+    # ✅ FIX: encode inside function
+    pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+
     payload = {
         "event": "process_pdf",
         "filename": pdf_name,
         "pdf_b64": pdf_b64,
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
-    
-    resp = requests.post(PROCESS_PDF_URL, json=payload, timeout=120)
+
+    resp = safe_post(PROCESS_PDF_URL, json=payload, timeout=120)
     resp.raise_for_status()
 
-    # 🔥 FIX: Safe JSON parsing
     try:
         data = resp.json()
     except:
-        data = json.loads(resp.text)
+        try:
+            data = json.loads(resp.text)
+        except:
+            return {}
 
+    if isinstance(data, list) and len(data) > 0:
+        data = data[0]
+        if "json" in data:
+            data = data["json"]
+    
     if isinstance(data, str):
         try:
             data = json.loads(data)
         except:
             return {}
-    return data
 
+    if not isinstance(data, dict):
+        return {}
+
+    chunks = (
+        data.get("chunks") or
+        data.get("data", {}).get("chunks") or
+        data.get("result", {}).get("chunks") or
+        []
+    )
+
+    clean_chunks = []
+    for c in chunks:
+        if isinstance(c, str):
+            try:
+                c = json.loads(c)
+            except:
+                continue
+        if isinstance(c, dict):
+            clean_chunks.append({
+                "text": c.get("text", ""),
+                "page": c.get("page", "?"),
+                "source": c.get("source", pdf_name)
+            })
+
+    return {
+        "status": data.get("status", "ok"),
+        "pages": data.get("pages", "?"),
+        "chunks": clean_chunks
+    }
 def call_n8n_ask_question(question: str, chunks: list, history: list) -> dict:
     payload = {
         "event": "ask_question",
@@ -293,7 +340,7 @@ def call_n8n_ask_question(question: str, chunks: list, history: list) -> dict:
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
 
-    resp = requests.post(ASK_QUESTION_URL, json=payload, timeout=60)
+    resp = safe_post(ASK_QUESTION_URL, json=payload, timeout=60)
     resp.raise_for_status()
 
     # 🔥 FIX: Safe JSON parsing
@@ -311,6 +358,10 @@ def call_n8n_ask_question(question: str, chunks: list, history: list) -> dict:
 
 
 def call_n8n_summarise(chunks: list, doc_meta: list) -> dict:
+    if not chunks:
+        return {"summary": "No chunks available. Please process documents first."}
+
+    chunks = chunks[:30]
     print("CHUNKS BEING SENT")
     print("Total chunks:", len(chunks))
     if chunks:
@@ -324,12 +375,12 @@ def call_n8n_summarise(chunks: list, doc_meta: list) -> dict:
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
 
-    resp = requests.post(SUMMARISE_URL, json=payload, timeout=120)
+    resp = safe_post(SUMMARISE_URL, json=payload, timeout=120)
     resp.raise_for_status()
 
     # 🔥 FIX: Safe JSON parsing
     if not resp.text.strip():
-        return {"summary": "n8n returned an empty response. Check yoursummarise workflow is active and returning data."}
+        return {"summary": "n8n returned an empty response. Check your summarise workflow is active and returning data."}
     try:
         data = resp.json()
     except:
@@ -383,8 +434,8 @@ with st.sidebar:
     # ── n8n Connection Check ──
     def check_n8n():
         try:
-            resp = requests.get(N8N_BASE, timeout=3)
-            return resp.status_code == 200        
+            requests.get(N8N_BASE, timeout=3)
+            return True   
         except:
             return False
 
@@ -443,13 +494,12 @@ with st.sidebar:
                     prog.progress((i+1) / len(uploaded_files), text=f"n8n processing {pdf.name}…")
                     try:
                         pdf_bytes = pdf.read()
-                        pdf_b64   = base64.b64encode(pdf_bytes).decode("utf-8")
-
+                        
                         # ── REAL n8n call: PDF → text extraction + chunking ──
-                        result = call_n8n_process_pdf(pdf.name, pdf_b64)
+                        result = call_n8n_process_pdf(pdf.name, pdf_bytes)
                         
                         result = ensure_dict(result)
-                        chunks = result.get("chunks", [])
+                        chunks = result.get("chunks") or []
                         all_chunks.extend(chunks)
                         all_meta.append({
                             "name":        pdf.name,
