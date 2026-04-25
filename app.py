@@ -28,7 +28,7 @@ def ensure_dict(data):
 # ══════════════════════════════════════════════════════════════════════════════
 # n8n ENDPOINT CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
-N8N_BASE = "https://n8n-backend-y9v2.onrender.com"
+N8N_BASE = "https://n8n-production-8bc4.up.railway.app"
 
 PROCESS_PDF_URL   = f"{N8N_BASE}/webhook/process-pdf"
 ASK_QUESTION_URL  = f"{N8N_BASE}/webhook/ask-question"
