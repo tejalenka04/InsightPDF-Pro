@@ -12,7 +12,7 @@ def safe_post(url, **kwargs):
         try:
             return requests.post(url, timeout=120, **kwargs)
         except requests.exceptions.RequestException:
-            time.sleep(5)
+            time.sleep(20)
     raise Exception("n8n not reachable")
 
 load_dotenv()
@@ -270,67 +270,20 @@ for k, v in {
 # ══════════════════════════════════════════════════════════════════════════════
 
 def call_n8n_process_pdf(pdf_name: str, pdf_bytes: bytes) -> dict:
-    # ✅ FIX: encode inside function
-    pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
-
-    payload = {
-        "event": "process_pdf",
-        "filename": pdf_name,
-        "pdf_b64": pdf_b64,
-        "timestamp": datetime.datetime.utcnow().isoformat(),
-    }
-
-    resp = safe_post(PROCESS_PDF_URL, json=payload, timeout=120)
-    resp.raise_for_status()
-
-    try:
-        data = resp.json()
-    except:
+# Better Render warmup
+    import time
+    print("🌡 Warming up Render server...")
+    for warmup_attempt in range(3):
         try:
-            data = json.loads(resp.text)
+            r = requests.get(N8N_BASE, timeout=15)
+            if r.status_code < 500:
+                print(f"✅ Server awake after {warmup_attempt+1} attempts")
+                break
         except:
-            return {}
+            print(f"⏳ Warmup attempt {warmup_attempt+1} failed, waiting...")
+            time.sleep(15)  # Give Render 15s between checks
 
-    if isinstance(data, list) and len(data) > 0:
-        data = data[0]
-        if "json" in data:
-            data = data["json"]
-    
-    if isinstance(data, str):
-        try:
-            data = json.loads(data)
-        except:
-            return {}
-
-    if not isinstance(data, dict):
-        return {}
-
-    chunks = (
-        data.get("chunks") or
-        data.get("data", {}).get("chunks") or
-        data.get("result", {}).get("chunks") or
-        []
-    )
-
-    clean_chunks = []
-    for c in chunks:
-        if isinstance(c, str):
-            try:
-                c = json.loads(c)
-            except:
-                continue
-        if isinstance(c, dict):
-            clean_chunks.append({
-                "text": c.get("text", ""),
-                "page": c.get("page", "?"),
-                "source": c.get("source", pdf_name)
-            })
-
-    return {
-        "status": data.get("status", "ok"),
-        "pages": data.get("pages", "?"),
-        "chunks": clean_chunks
-    }
+    time.sleep(20)  # Extra buffer after warmup
 def call_n8n_ask_question(question: str, chunks: list, history: list) -> dict:
     payload = {
         "event": "ask_question",
