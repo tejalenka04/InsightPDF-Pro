@@ -8,11 +8,12 @@ from dotenv import load_dotenv
 import time
 
 def safe_post(url, **kwargs):
+    kwargs.pop('timeout', None)  # Remove timeout if passed in kwargs
     for i in range(3):
         try:
             return requests.post(url, timeout=120, **kwargs)
         except requests.exceptions.RequestException:
-            time.sleep(20)
+            time.sleep(5)
     raise Exception("n8n not reachable")
 
 load_dotenv()
